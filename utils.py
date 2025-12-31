@@ -374,26 +374,67 @@ class DataManager:
                     cell.alignment = Alignment(horizontal='center', vertical='center')
                 
                 # 添加数据
-                for row in rows:
+                print(f"  📝 开始写入 {len(rows)} 行数据到Excel...")
+                for row_idx, row in enumerate(rows, start=1):
+                    # 检查提示词列（第3列）
+                    if len(row) >= 3:
+                        prompt = row[2]
+                        if row_idx <= 3:  # 只打印前3行
+                            print(f"    行{row_idx} - 提示词长度: {len(str(prompt))} 字符")
+                            print(f"           前50字符: {str(prompt)[:50]}")
                     ws.append(row)
                 
-                # 自动调整列宽
-                for column in ws.columns:
+                # 设置单元格样式：文本换行 + 估算行高
+                for row_idx, row_cells in enumerate(ws.iter_rows(min_row=2), start=2):
+                    max_text_length = 0
+                    for cell_idx, cell in enumerate(row_cells):
+                        cell.alignment = Alignment(wrap_text=True, vertical='top')
+                        # 检查第3列（提示词）的文本长度
+                        if cell_idx == 2 and cell.value:  # 第3列是提示词
+                            text_length = len(str(cell.value))
+                            max_text_length = max(max_text_length, text_length)
+                    
+                    # 根据提示词长度设置行高
+                    if max_text_length > 80:
+                        # 估算行高：每80字符一行，每行15磅
+                        estimated_lines = (max_text_length // 80) + 1
+                        ws.row_dimensions[row_idx].height = min(estimated_lines * 15, 300)  # 最高300磅
+                    else:
+                        ws.row_dimensions[row_idx].height = 30  # 默认行高
+                
+                # 自动调整列宽（提示词列特殊处理）
+                for col_idx, column in enumerate(ws.columns, start=1):
                     max_length = 0
                     column_letter = column[0].column_letter
-                    for cell in column:
-                        try:
-                            if len(str(cell.value)) > max_length:
-                                max_length = len(str(cell.value))
-                        except:
-                            pass
-                    adjusted_width = min(max_length + 2, 100)  # 最大100字符宽度
-                    ws.column_dimensions[column_letter].width = adjusted_width
+                    
+                    # 第3列是提示词，设置固定宽度80
+                    if col_idx == 3:
+                        ws.column_dimensions[column_letter].width = 80
+                    else:
+                        for cell in column:
+                            try:
+                                if len(str(cell.value)) > max_length:
+                                    max_length = len(str(cell.value))
+                            except:
+                                pass
+                        adjusted_width = min(max_length + 2, 100)
+                        ws.column_dimensions[column_letter].width = adjusted_width
                 
                 # 保存文件
                 excel_path = self.output_dir.parent / f'{site_name}.xlsx'
                 wb.save(excel_path)
                 print(f"  ✅ {site_name}.xlsx ({len(rows)} 条)")
+                
+                # 【验证】读取保存的文件，检查提示词是否完整
+                print(f"  🔍 验证Excel文件...")
+                wb_check = load_workbook(excel_path)
+                ws_check = wb_check.active
+                for row_idx in range(2, min(4, ws_check.max_row + 1)):  # 检查前2行数据
+                    cell_value = ws_check.cell(row_idx, 3).value  # 第3列是提示词
+                    if cell_value:
+                        print(f"    行{row_idx-1} 提示词长度: {len(str(cell_value))} 字符")
+                        print(f"           内容: {str(cell_value)[:100]}...")
+                wb_check.close()
             
             print(f"📊 Excel 文件生成完成！")
             
