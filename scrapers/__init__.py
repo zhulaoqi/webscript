@@ -6,9 +6,11 @@ from .wan_scraper_wrapper import WanVideoScraper
 from .imagine_art_scraper_wrapper import ImagineArtScraper
 from .pixverse_scraper_wrapper import PixverseScraper
 
+# Playwright 网络监听（特殊情况：无 API 网站）
+from .invideo_scraper_wrapper import InvideoScraper
+
 # 其他网站暂未实现
 HiggsfieldScraper = None
-InvideoScraper = None
 
 __all__ = [
     'WanVideoScraper',
