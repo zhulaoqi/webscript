@@ -257,9 +257,8 @@ class DataManager:
         self.text2video_dir.mkdir(exist_ok=True)
         self.image2video_dir.mkdir(exist_ok=True)
         
-        # 数据存储
-        self.text2video_data: List[Dict] = []
-        self.image2video_data: List[Dict] = []
+        # Excel 数据存储（内存中维护）
+        self.excel_data: Dict[str, List[List]] = {}  # {site_name: [[row1], [row2], ...]}
         
         # S3上传器
         self.use_s3 = use_s3
@@ -293,28 +292,10 @@ class DataManager:
         
         return cdn_url
     
-    def add_text2video(self, data: Dict):
-        """添加文生视频数据"""
-        self.text2video_data.append(data)
-        print(f"    💾 数据已保存 (总计: {len(self.text2video_data)} 条)")
-    
-    def add_image2video(self, data: Dict):
-        """添加图生视频数据"""
-        self.image2video_data.append(data)
-        print(f"    💾 数据已保存 (总计: {len(self.image2video_data)} 条)")
-    
-    def save_json(self):
-        """保存JSON数据（仅用于调试）"""
-        pass  # 不再输出JSON文件
-    
-    def create_zip(self):
-        """创建ZIP压缩包"""
-        pass  # 不再创建ZIP
     
     def append_to_txt(self, work_url: str, site_name: str, source_url: str = '', prompt: str = '', cover_url: str = ''):
         """
-        实时追加数据到TXT文件
-        格式：作品URL 原图URL 提示词 缩略图URL（固定4列，空格分隔）
+        实时追加数据到 Excel 数据（内存中）
         
         Args:
             work_url: 作品URL（视频或图片）
@@ -333,117 +314,106 @@ class DataManager:
                 if len(prompt) > 500:
                     prompt = prompt[:500]
             
-            # 固定4列格式
-            line = f"{work_url} {source_url or '无原图'} {prompt or '无提示词'} {cover_url or '无缩略图'}\n"
-            
-            # 网站专用文件
+            # 网站标识
             site_normalized = site_name.lower().replace(' ', '_').replace('.', '_')
-            site_txt_path = self.output_dir.parent / f'{site_normalized}.txt'
             
-            # 追加到网站文件
-            with open(site_txt_path, 'a', encoding='utf-8') as f:
-                f.write(line)
+            # 添加到 Excel 数据（内存中）
+            if site_normalized not in self.excel_data:
+                self.excel_data[site_normalized] = []
             
-            # 追加到总文件
-            all_txt_path = self.output_dir.parent / 'all_materials.txt'
-            with open(all_txt_path, 'a', encoding='utf-8') as f:
-                f.write(line)
+            self.excel_data[site_normalized].append([
+                work_url,
+                source_url or '无原图',
+                prompt or '无提示词',
+                cover_url or '无缩略图'
+            ])
+            
+            # 同时添加到总数据
+            if 'all_materials' not in self.excel_data:
+                self.excel_data['all_materials'] = []
+            
+            self.excel_data['all_materials'].append([
+                work_url,
+                source_url or '无原图',
+                prompt or '无提示词',
+                cover_url or '无缩略图'
+            ])
                 
         except Exception as e:
-            print(f"  ⚠️  写入TXT失败: {e}")
+            print(f"  ⚠️  写入数据失败: {e}")
     
-    def export_txt(self, site_name: str = None):
+    def save_excel(self):
         """
-        导出TXT文件 - 每行一个S3 URL，效率更高（已废弃，改用实时写入）
-        
-        Args:
-            site_name: 网站名称，如果提供则只导出该网站数据
+        保存 Excel 文件（从内存中的数据）
+        每个网站一个 Excel 文件，加一个总的 all_materials.xlsx
+        格式：作品URL | 原图URL | 提示词 | 缩略图URL
         """
         try:
-            print(f"\n  📝 导出TXT: site_name={site_name}")
-            print(f"  📁 数据统计: text2video={len(self.text2video_data)}, image2video={len(self.image2video_data)}")
+            if not self.excel_data:
+                print("  ℹ️  没有数据需要保存到 Excel")
+                return
             
-            # 收集所有URL
-            all_urls = []
+            print(f"\n📊 生成 Excel 文件...")
             
-            # 添加文生视频数据的URL
-            for item in self.text2video_data:
-                category = item.get('category', '')
+            for site_name, rows in self.excel_data.items():
+                if not rows:
+                    continue
                 
-                # 如果指定了site_name，只导出匹配的数据
-                if site_name:
-                    site_normalized = site_name.lower().replace('_', ' ')
-                    category_normalized = category.lower().replace('_', ' ')
-                    if site_normalized not in category_normalized and category_normalized not in site_normalized:
-                        continue
+                # 创建工作簿
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "素材数据"
                 
-                # 添加视频URL
-                if item.get('video_s3_url'):
-                    all_urls.append(item.get('video_s3_url'))
+                # 设置表头
+                headers = ["作品URL", "原图URL", "提示词", "缩略图URL"]
+                ws.append(headers)
                 
-                # 添加缩略图URL
-                if item.get('thumbnail_s3_url'):
-                    all_urls.append(item.get('thumbnail_s3_url'))
-            
-            # 添加图生视频数据的URL
-            for item in self.image2video_data:
-                category = item.get('category', '')
+                # 设置表头样式
+                for cell in ws[1]:
+                    cell.font = Font(bold=True, size=12)
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
                 
-                # 如果指定了site_name，只导出匹配的数据
-                if site_name:
-                    site_normalized = site_name.lower().replace('_', ' ')
-                    category_normalized = category.lower().replace('_', ' ')
-                    if site_normalized not in category_normalized and category_normalized not in site_normalized:
-                        continue
+                # 添加数据
+                for row in rows:
+                    ws.append(row)
                 
-                # 添加原图URL
-                if item.get('source_image_s3_url'):
-                    all_urls.append(item.get('source_image_s3_url'))
+                # 自动调整列宽
+                for column in ws.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    adjusted_width = min(max_length + 2, 100)  # 最大100字符宽度
+                    ws.column_dimensions[column_letter].width = adjusted_width
                 
-                # 添加视频URL
-                if item.get('video_s3_url'):
-                    all_urls.append(item.get('video_s3_url'))
-                
-                # 添加缩略图URL
-                if item.get('thumbnail_s3_url'):
-                    all_urls.append(item.get('thumbnail_s3_url'))
+                # 保存文件
+                excel_path = self.output_dir.parent / f'{site_name}.xlsx'
+                wb.save(excel_path)
+                print(f"  ✅ {site_name}.xlsx ({len(rows)} 条)")
             
-            print(f"  🔗 收集到 {len(all_urls)} 个S3链接")
-            
-            if not all_urls:
-                print(f"  ⚠️  没有数据可导出 (site: {site_name})")
-                return None
-            
-            # 生成文件名
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            if site_name:
-                filename = f'{site_name}_{timestamp}.txt'
-            else:
-                filename = f'all_materials_{timestamp}.txt'
-            
-            txt_path = self.output_dir.parent / filename
-            
-            # 写入TXT文件（每行一个URL）
-            with open(txt_path, 'w', encoding='utf-8') as f:
-                for url in all_urls:
-                    f.write(url + '\n')
-            
-            print(f"  ✅ TXT已导出: {txt_path}")
-            print(f"  📊 S3链接数: {len(all_urls)} 条")
-            return txt_path
+            print(f"📊 Excel 文件生成完成！")
             
         except Exception as e:
-            print(f"✗ 导出TXT失败: {e}")
+            print(f"  ⚠️  生成 Excel 失败: {e}")
             import traceback
             traceback.print_exc()
-            return None
+    
     
     def get_summary(self) -> Dict:
-        """获取数据摘要"""
+        """获取数据摘要（基于 Excel 数据）"""
+        total_count = sum(len(rows) for rows in self.excel_data.values() if rows)
+        # 减去重复的 all_materials 计数
+        if 'all_materials' in self.excel_data:
+            total_count = len(self.excel_data['all_materials'])
+        
         return {
-            'text2video_count': len(self.text2video_data),
-            'image2video_count': len(self.image2video_data),
-            'total_count': len(self.text2video_data) + len(self.image2video_data)
+            'text2video_count': 0,  # 已不再单独统计
+            'image2video_count': 0,  # 已不再单独统计
+            'total_count': total_count
         }
 
 
