@@ -84,8 +84,8 @@ AWS_S3_CONFIG = {
     'url_prefix': 'https://ad-pex-test-cdn.adpexai.com/',
     'original_url': 'https://ad-pex-test.s3.ap-southeast-1.amazonaws.com/',
     'bucket_name': 'ad-pex-test',
-    'access_key_id': 'AKIAVIPDWYOL5LMWTRVD',
-    'secret_access_key': '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',
+    'access_key_id': '***',
+    'secret_access_key': '***',
     'region': 'ap-southeast-1',
     'accelerate_url': 'https://s3-accelerate.amazonaws.com',
 }
